@@ -21,6 +21,7 @@ from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
 import argparse
 import time
+import uuid
 
 try:
     import websockets
@@ -45,12 +46,54 @@ from config import (
     USE_PROXY, PROXY_URL,
     WS_PING_INTERVAL, WS_PING_TIMEOUT, MAX_RETRIES
 )
-from strategy_config import STRATEGY_CONFIG, get_multi_timeframe_config
+from strategy_config import get_multi_timeframe_config
 from indicators import StreamingKlineBuffer
 from strategy import (
-    SignalGenerator, TradingSignal, SignalGrade,
+    SignalGenerator, TradingSignal,
     MarketState, MarketStateDetector, SignalDirection
 )
+
+
+@dataclass
+class PendingVerification:
+    """待验证的信号"""
+    signal_id: str                    # 信号唯一ID
+    signal: TradingSignal             # 原始信号
+    entry_price: float                # 开单价格
+    entry_time: datetime              # 开单时间
+    verify_10min_time: datetime       # 10分钟验证时间
+    verify_30min_time: datetime       # 30分钟验证时间
+    verified_10min: bool = False      # 是否已验证10分钟
+    verified_30min: bool = False      # 是否已验证30分钟
+    result_10min: Optional[str] = None   # 10分钟结果: "correct", "wrong", "pending"
+    result_30min: Optional[str] = None   # 30分钟结果
+    price_at_10min: Optional[float] = None  # 10分钟时的价格
+    price_at_30min: Optional[float] = None  # 30分钟时的价格
+    profit_10min: Optional[float] = None    # 10分钟盈亏百分比
+    profit_30min: Optional[float] = None    # 30分钟盈亏百分比
+
+
+@dataclass
+class VerificationStats:
+    """验证统计"""
+    total_verified_10min: int = 0
+    correct_10min: int = 0
+    wrong_10min: int = 0
+    total_verified_30min: int = 0
+    correct_30min: int = 0
+    wrong_30min: int = 0
+
+    @property
+    def accuracy_10min(self) -> float:
+        if self.total_verified_10min == 0:
+            return 0.0
+        return self.correct_10min / self.total_verified_10min
+
+    @property
+    def accuracy_30min(self) -> float:
+        if self.total_verified_30min == 0:
+            return 0.0
+        return self.correct_30min / self.total_verified_30min
 
 # 禁用 logging 输出到控制台
 logging.basicConfig(level=logging.WARNING)
@@ -121,6 +164,11 @@ class DashboardState:
     last_signal_direction: Optional[SignalDirection] = None
     last_signal_kline_time: Optional[int] = None  # 产生信号时的K线开盘时间
 
+    # 信号验证
+    pending_verifications: List[PendingVerification] = field(default_factory=list)
+    completed_verifications: List[PendingVerification] = field(default_factory=list)
+    verification_stats: VerificationStats = field(default_factory=VerificationStats)
+
 
 class RichDashboard:
     """Rich 实时仪表盘"""
@@ -141,6 +189,7 @@ class RichDashboard:
 
         layout["main"].split_row(
             Layout(name="left", ratio=1),
+            Layout(name="middle", ratio=1),
             Layout(name="right", ratio=1)
         )
 
@@ -149,9 +198,14 @@ class RichDashboard:
             Layout(name="indicators", ratio=1)
         )
 
-        layout["right"].split_column(
+        layout["middle"].split_column(
             Layout(name="signal", size=16),
             Layout(name="history", ratio=1)
+        )
+
+        layout["right"].split_column(
+            Layout(name="verification", size=14),
+            Layout(name="verification_history", ratio=1)
         )
 
         return layout
@@ -405,6 +459,108 @@ class RichDashboard:
 
         return Panel(table, title=f"📜 信号历史 (共{self.state.total_signals}条)", border_style="cyan")
 
+    def _make_verification(self) -> Panel:
+        """创建验证统计面板"""
+        table = Table(show_header=False, box=box.SIMPLE, expand=True)
+        table.add_column("项目", style="cyan", width=14)
+        table.add_column("值", justify="right")
+
+        stats = self.state.verification_stats
+        pending_count = len(self.state.pending_verifications)
+
+        table.add_row("待验证信号", f"[yellow]{pending_count}[/]")
+        table.add_row("", "")
+
+        # 10分钟验证统计
+        table.add_row("[bold]10分钟验证[/]", "")
+        table.add_row("  已验证", str(stats.total_verified_10min))
+        if stats.total_verified_10min > 0:
+            acc_color = "green" if stats.accuracy_10min >= 0.6 else "yellow" if stats.accuracy_10min >= 0.4 else "red"
+            table.add_row("  正确/错误", f"[green]{stats.correct_10min}[/]/[red]{stats.wrong_10min}[/]")
+            table.add_row("  准确率", f"[{acc_color}]{stats.accuracy_10min:.1%}[/]")
+        else:
+            table.add_row("  准确率", "[dim]N/A[/]")
+
+        table.add_row("", "")
+
+        # 30分钟验证统计
+        table.add_row("[bold]30分钟验证[/]", "")
+        table.add_row("  已验证", str(stats.total_verified_30min))
+        if stats.total_verified_30min > 0:
+            acc_color = "green" if stats.accuracy_30min >= 0.6 else "yellow" if stats.accuracy_30min >= 0.4 else "red"
+            table.add_row("  正确/错误", f"[green]{stats.correct_30min}[/]/[red]{stats.wrong_30min}[/]")
+            table.add_row("  准确率", f"[{acc_color}]{stats.accuracy_30min:.1%}[/]")
+        else:
+            table.add_row("  准确率", "[dim]N/A[/]")
+
+        return Panel(table, title="📊 信号验证统计", border_style="magenta")
+
+    def _make_verification_history(self) -> Panel:
+        """创建验证历史面板"""
+        table = Table(show_header=True, box=box.SIMPLE, expand=True)
+        table.add_column("时间", width=8)
+        table.add_column("方向", width=4)
+        table.add_column("入场价", width=10)
+        table.add_column("10分", width=8)
+        table.add_column("30分", width=8)
+
+        # 显示待验证的信号
+        for pv in self.state.pending_verifications[-5:]:
+            time_str = pv.entry_time.strftime("%H:%M:%S")
+            direction = "[green]买[/]" if pv.signal.direction == SignalDirection.BUY else "[red]卖[/]"
+            entry = f"${pv.entry_price:,.0f}"
+
+            # 10分钟结果
+            if pv.verified_10min:
+                if pv.result_10min == "correct":
+                    r10 = f"[green]✓{pv.profit_10min:+.2f}%[/]"
+                else:
+                    r10 = f"[red]✗{pv.profit_10min:+.2f}%[/]"
+            else:
+                remaining = (pv.verify_10min_time - datetime.now()).total_seconds()
+                if remaining > 0:
+                    r10 = f"[yellow]{int(remaining)}s[/]"
+                else:
+                    r10 = "[yellow]验证中[/]"
+
+            # 30分钟结果
+            if pv.verified_30min:
+                if pv.result_30min == "correct":
+                    r30 = f"[green]✓{pv.profit_30min:+.2f}%[/]"
+                else:
+                    r30 = f"[red]✗{pv.profit_30min:+.2f}%[/]"
+            else:
+                remaining = (pv.verify_30min_time - datetime.now()).total_seconds()
+                if remaining > 0:
+                    r30 = f"[yellow]{int(remaining/60)}m{int(remaining%60)}s[/]"
+                else:
+                    r30 = "[yellow]验证中[/]"
+
+            table.add_row(time_str, direction, entry, r10, r30)
+
+        # 显示已完成验证的信号
+        for pv in self.state.completed_verifications[-5:]:
+            time_str = pv.entry_time.strftime("%H:%M:%S")
+            direction = "[green]买[/]" if pv.signal.direction == SignalDirection.BUY else "[red]卖[/]"
+            entry = f"${pv.entry_price:,.0f}"
+
+            if pv.result_10min == "correct":
+                r10 = f"[green]✓{pv.profit_10min:+.2f}%[/]"
+            else:
+                r10 = f"[red]✗{pv.profit_10min:+.2f}%[/]"
+
+            if pv.result_30min == "correct":
+                r30 = f"[green]✓{pv.profit_30min:+.2f}%[/]"
+            else:
+                r30 = f"[red]✗{pv.profit_30min:+.2f}%[/]"
+
+            table.add_row(f"[dim]{time_str}[/]", direction, entry, r10, r30)
+
+        if not self.state.pending_verifications and not self.state.completed_verifications:
+            table.add_row("[dim]暂无验证记录[/]", "", "", "", "")
+
+        return Panel(table, title="🔍 验证详情", border_style="magenta")
+
     def _make_footer(self) -> Panel:
         """创建底部面板"""
         stats = Text()
@@ -412,7 +568,15 @@ class RichDashboard:
         stats.append(f"总信号 {self.state.total_signals} | ", style="white")
         stats.append(f"买入 {self.state.buy_signals} ", style="green")
         stats.append(f"卖出 {self.state.sell_signals} ", style="red")
-        stats.append("| 按 Ctrl+C 退出", style="dim")
+
+        # 添加验证准确率
+        v_stats = self.state.verification_stats
+        if v_stats.total_verified_10min > 0:
+            stats.append(f" | 10分准确率: {v_stats.accuracy_10min:.1%}", style="cyan")
+        if v_stats.total_verified_30min > 0:
+            stats.append(f" | 30分准确率: {v_stats.accuracy_30min:.1%}", style="cyan")
+
+        stats.append(" | 按 Ctrl+C 退出", style="dim")
 
         return Panel(stats, style="dim")
 
@@ -423,6 +587,8 @@ class RichDashboard:
         self.layout["indicators"].update(self._make_indicators())
         self.layout["signal"].update(self._make_signal())
         self.layout["history"].update(self._make_history())
+        self.layout["verification"].update(self._make_verification())
+        self.layout["verification_history"].update(self._make_verification_history())
         self.layout["footer"].update(self._make_footer())
 
         return self.layout
@@ -692,6 +858,94 @@ class LiveDashboardSystem:
             else:
                 self.state.sell_signals += 1
 
+            # 添加到待验证列表
+            self._add_pending_verification(signal)
+
+    def _add_pending_verification(self, signal: TradingSignal):
+        """添加待验证的信号"""
+        from datetime import timedelta
+
+        now = datetime.now()
+        verification = PendingVerification(
+            signal_id=str(uuid.uuid4())[:8],
+            signal=signal,
+            entry_price=signal.entry_price,
+            entry_time=now,
+            verify_10min_time=now + timedelta(minutes=10),
+            verify_30min_time=now + timedelta(minutes=30),
+        )
+        self.state.pending_verifications.append(verification)
+
+        # 限制待验证列表长度
+        if len(self.state.pending_verifications) > 50:
+            # 移除最旧的已完成验证的
+            completed = [pv for pv in self.state.pending_verifications if pv.verified_30min]
+            if completed:
+                self.state.pending_verifications.remove(completed[0])
+
+    def _verify_signals(self):
+        """验证信号结果"""
+        now = datetime.now()
+        current_price = self.state.current_price
+
+        if current_price <= 0:
+            return
+
+        to_remove = []
+
+        for pv in self.state.pending_verifications:
+            # 验证10分钟结果
+            if not pv.verified_10min and now >= pv.verify_10min_time:
+                pv.verified_10min = True
+                pv.price_at_10min = current_price
+
+                # 计算盈亏
+                if pv.signal.direction == SignalDirection.BUY:
+                    pv.profit_10min = (current_price - pv.entry_price) / pv.entry_price * 100
+                    pv.result_10min = "correct" if current_price > pv.entry_price else "wrong"
+                else:  # SELL
+                    pv.profit_10min = (pv.entry_price - current_price) / pv.entry_price * 100
+                    pv.result_10min = "correct" if current_price < pv.entry_price else "wrong"
+
+                # 更新统计
+                self.state.verification_stats.total_verified_10min += 1
+                if pv.result_10min == "correct":
+                    self.state.verification_stats.correct_10min += 1
+                else:
+                    self.state.verification_stats.wrong_10min += 1
+
+            # 验证30分钟结果
+            if not pv.verified_30min and now >= pv.verify_30min_time:
+                pv.verified_30min = True
+                pv.price_at_30min = current_price
+
+                # 计算盈亏
+                if pv.signal.direction == SignalDirection.BUY:
+                    pv.profit_30min = (current_price - pv.entry_price) / pv.entry_price * 100
+                    pv.result_30min = "correct" if current_price > pv.entry_price else "wrong"
+                else:  # SELL
+                    pv.profit_30min = (pv.entry_price - current_price) / pv.entry_price * 100
+                    pv.result_30min = "correct" if current_price < pv.entry_price else "wrong"
+
+                # 更新统计
+                self.state.verification_stats.total_verified_30min += 1
+                if pv.result_30min == "correct":
+                    self.state.verification_stats.correct_30min += 1
+                else:
+                    self.state.verification_stats.wrong_30min += 1
+
+            # 如果两个验证都完成，移到已完成列表
+            if pv.verified_10min and pv.verified_30min:
+                to_remove.append(pv)
+
+        # 移动已完成的验证
+        for pv in to_remove:
+            self.state.pending_verifications.remove(pv)
+            self.state.completed_verifications.append(pv)
+            # 限制已完成列表长度
+            if len(self.state.completed_verifications) > 100:
+                self.state.completed_verifications = self.state.completed_verifications[-100:]
+
     async def run(self):
         """运行仪表盘"""
         self.is_running = True
@@ -710,7 +964,14 @@ class LiveDashboardSystem:
                     live.update(self.dashboard.render())
                     await asyncio.sleep(0.5)
 
+            async def verification_loop():
+                """定期验证信号"""
+                while self.is_running:
+                    self._verify_signals()
+                    await asyncio.sleep(1)  # 每秒检查一次
+
             display_task = asyncio.create_task(update_display())
+            verification_task = asyncio.create_task(verification_loop())
 
             try:
                 await asyncio.gather(*ws_tasks)
@@ -718,6 +979,7 @@ class LiveDashboardSystem:
                 pass
             finally:
                 display_task.cancel()
+                verification_task.cancel()
 
     def stop(self):
         """停止系统"""
