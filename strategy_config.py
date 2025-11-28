@@ -91,20 +91,20 @@ STRATEGY_CONFIG: Dict[str, Any] = {
         # 震荡策略配置
         "ranging": {
             "enabled": True,
-            "bb_lower_threshold": 0.15,     # 布林带下轨阈值 (%B)
-            "bb_upper_threshold": 0.85,     # 布林带上轨阈值 (%B)
-            "rsi_oversold": 35,             # RSI超卖阈值
-            "rsi_overbought": 65,           # RSI超买阈值
-            "kdj_oversold": 25,             # KDJ超卖阈值
-            "kdj_overbought": 75,           # KDJ超买阈值
-            "j_extreme_low": 10,            # J值极低阈值
-            "j_extreme_high": 90,           # J值极高阈值
+            "bb_lower_threshold": 0.10,     # 布林带下轨阈值 (%B)（原0.15，更严格）
+            "bb_upper_threshold": 0.90,     # 布林带上轨阈值 (%B)（原0.85，更严格）
+            "rsi_oversold": 30,             # RSI超卖阈值（原35，更严格）
+            "rsi_overbought": 70,           # RSI超买阈值（原65，更严格）
+            "kdj_oversold": 20,             # KDJ超卖阈值（原25，更严格）
+            "kdj_overbought": 80,           # KDJ超买阈值（原75，更严格）
+            "j_extreme_low": 5,             # J值极低阈值（原10，更严格）
+            "j_extreme_high": 95,           # J值极高阈值（原90，更严格）
         },
 
         # 趋势策略配置
         "trending": {
             "enabled": True,
-            "ema_pullback_threshold": 0.015,  # 回调至EMA20的距离阈值 (1.5%)
+            "ema_pullback_threshold": 0.01,   # 回调至EMA20的距离阈值 (1%)（原1.5%，更严格）
             "rsi_healthy_low": 40,            # RSI健康区间下限
             "rsi_healthy_high": 70,           # RSI健康区间上限
             "macd_confirmation": True,        # 是否需要MACD确认
@@ -114,9 +114,9 @@ STRATEGY_CONFIG: Dict[str, Any] = {
         "breakout": {
             "enabled": True,
             "lookback_period": 20,            # 突破参考的K线数量
-            "min_breakout_atr": 0.5,          # 最小突破幅度（ATR倍数）
+            "min_breakout_atr": 0.8,          # 最小突破幅度（ATR倍数）（原0.5，更严格）
             "volume_confirmation": True,       # 是否需要成交量确认
-            "min_volume_ratio": 1.5,          # 最小成交量倍数
+            "min_volume_ratio": 2.0,          # 最小成交量倍数（原1.5，更严格）
         },
     },
 
@@ -125,7 +125,7 @@ STRATEGY_CONFIG: Dict[str, Any] = {
         "enabled": True,
         "primary_timeframe": "5m",            # 主信号周期
         "confirmation_timeframes": ["15m", "1h"],  # 确认周期
-        "min_confirmations": 1,               # 至少需要几个周期确认
+        "min_confirmations": 2,               # 至少需要2个周期确认（原1）
         "weights": {                          # 各周期权重
             "5m": 0.4,
             "15m": 0.35,
@@ -154,9 +154,9 @@ STRATEGY_CONFIG: Dict[str, Any] = {
 
     # ==================== 信号强度阈值 ====================
     "signal_thresholds": {
-        "strong_signal": 0.75,                # >= 75% = A级强信号
-        "standard_signal": 0.50,              # >= 50% = B级标准信号
-        "weak_signal": 0.30,                  # >= 30% = C级弱信号（不开单）
+        "strong_signal": 0.80,                # >= 80% = A级强信号（原0.75）
+        "standard_signal": 0.60,              # >= 60% = B级标准信号（原0.50）
+        "weak_signal": 0.40,                  # >= 40% = C级弱信号（不开单）（原0.30）
     },
 
     # ==================== 风险管理配置 ====================

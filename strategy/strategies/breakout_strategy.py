@@ -183,7 +183,7 @@ class BreakoutStrategy(BaseStrategy):
                 plus_di, minus_di, volume_ratio, volume_spike, resistance
             )
 
-            if buy_signals >= 2 and buy_strength >= 0.5:
+            if buy_signals >= 3 and buy_strength >= 0.6:
                 # 计算止损止盈
                 stop_loss = support if support else current_price - (atr * 2)
                 take_profit = current_price + (atr * 3) if atr else None
@@ -210,7 +210,7 @@ class BreakoutStrategy(BaseStrategy):
                 plus_di, minus_di, volume_ratio, volume_spike, support
             )
 
-            if sell_signals >= 2 and sell_strength >= 0.5:
+            if sell_signals >= 3 and sell_strength >= 0.6:
                 # 计算止损止盈
                 stop_loss = resistance if resistance else current_price + (atr * 2)
                 take_profit = current_price - (atr * 3) if atr else None

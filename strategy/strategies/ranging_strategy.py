@@ -166,8 +166,8 @@ class RangingStrategy(BaseStrategy):
             'volume_ratio': volume_ratio
         }
 
-        # 决定最终信号
-        if buy_signals >= 2 and buy_strength > sell_strength:
+        # 决定最终信号（提高阈值：需要至少3个信号确认）
+        if buy_signals >= 3 and buy_strength > sell_strength:
             # 计算止损止盈
             stop_loss = current_price - (atr * 2) if atr else None
             take_profit = bb.get('middle') if bb.get('middle') else None
@@ -183,7 +183,7 @@ class RangingStrategy(BaseStrategy):
                 metadata={'buy_signals': buy_signals, 'sell_signals': sell_signals}
             )
 
-        elif sell_signals >= 2 and sell_strength > buy_strength:
+        elif sell_signals >= 3 and sell_strength > buy_strength:
             # 计算止损止盈
             stop_loss = current_price + (atr * 2) if atr else None
             take_profit = bb.get('middle') if bb.get('middle') else None

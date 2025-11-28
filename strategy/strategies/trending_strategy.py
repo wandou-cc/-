@@ -179,8 +179,8 @@ class TrendingStrategy(BaseStrategy):
 
         signals, reasons, strength = signal_result
 
-        # 决定最终信号
-        if signals >= 2 and strength >= 0.4:
+        # 决定最终信号（提高阈值：需要至少3个信号且强度>=0.5）
+        if signals >= 3 and strength >= 0.5:
             direction = SignalDirection.BUY if trend_direction == 'up' else SignalDirection.SELL
 
             # 计算止损止盈
