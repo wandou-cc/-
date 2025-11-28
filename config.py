@@ -83,7 +83,6 @@ INDICATOR_SWITCHES = {
     'use_ema': False,     # 启用EMA四线系统（趋势层）
     'use_cci': True,     # 启用CCI（动量层）
     'use_atr': True,     # 启用ATR（波动率层）
-    'use_vwap': False    # 启用VWAP（日内交易基准，适合短周期如1m/5m）
 }
 
 # 共振策略配置
@@ -107,7 +106,6 @@ def _calculate_min_resonance():
         INDICATOR_SWITCHES['use_ema'],
         INDICATOR_SWITCHES['use_cci'],
         INDICATOR_SWITCHES['use_atr'],
-        INDICATOR_SWITCHES['use_vwap'],
     ])
 
     # 默认要求70%的指标共振，向上取整

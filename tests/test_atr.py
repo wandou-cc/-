@@ -46,34 +46,53 @@ print("="*130)
 print("\n【ATR参数配置】")
 atr_period = 14
 print(f"ATR周期: {atr_period}")
-print("计算方法: Wilder平滑法")
+print("计算方法: Wilder平滑法（无状态计算）")
 print("="*130)
 
-# 使用正序数据进行实时更新测试
-atr3 = ATRIndicator(period=atr_period)
-analyzer = ATRAnalyzer(atr3)
+# 使用无状态ATR指标进行批量计算
+atr_indicator = ATRIndicator(period=atr_period)
+analyzer = ATRAnalyzer(period=atr_period)
 
-timestamps_asc = list((timestamps))
-highs_asc = list((highs))
-lows_asc = list((lows))
-closes_asc = list((closes))
+timestamps_asc = list(timestamps)
+highs_asc = list(highs)
+lows_asc = list(lows)
+closes_asc = list(closes)
 
-# 更新所有数据点
+full_result = atr_indicator.calculate(highs_asc, lows_asc, closes_asc)
+if full_result['atr'] is None:
+    print("当前样本数据不足以完成完整ATR计算，将在后续统计中根据有效数据输出结果。")
+else:
+    print(f"完整样本最新ATR值: ${full_result['atr']:,.2f}")
+
+# 逐步累积数据，模拟实时更新
+highs_buffer = []
+lows_buffer = []
+closes_buffer = []
 volatility_records = []
+
 for i in range(len(closes_asc)):
-    atr3.update(highs_asc[i], lows_asc[i], closes_asc[i])
+    highs_buffer.append(highs_asc[i])
+    lows_buffer.append(lows_asc[i])
+    closes_buffer.append(closes_asc[i])
+
+    analysis = analyzer.analyze(highs_buffer, lows_buffer, closes_buffer)
+
+    if analysis['atr'] is None:
+        continue
 
     if i >= atr_period + 20:  # 确保有足够的历史数据
-        vol_level = analyzer.get_volatility_level()
-        stop_loss = analyzer.get_stop_loss_distance(multiplier=2.0)
         volatility_records.append({
             'index': i,
             'timestamp': timestamps_asc[i],
             'close': closes_asc[i],
-            'atr': atr3.atr,
-            'volatility': vol_level,
-            'stop_loss': stop_loss
+            'atr': analysis['atr'],
+            'volatility': analysis['volatility_level'],
+            'stop_loss': analysis['stop_loss_distance']
         })
+
+if not volatility_records:
+    print("暂无足够的ATR数据用于分析，请检查K线样本后重试。")
+    sys.exit(0)
 
 # 显示最近20条波动率记录
 print("\n【最近20条波动率分析】\n")
@@ -111,7 +130,14 @@ for i in range(1, min(50, len(volatility_records))):
     curr_record = volatility_records[-i]
 
     price_move = curr_record['close'] - prev_record['close']
-    is_valid = analyzer.is_breakout_valid(price_move, threshold=1.0)
+    curr_idx = curr_record['index']
+    is_valid = analyzer.is_breakout_valid(
+        highs_asc[:curr_idx + 1],
+        lows_asc[:curr_idx + 1],
+        closes_asc[:curr_idx + 1],
+        price_move,
+        threshold=1.0
+    )
 
     if is_valid:
         breakout_count += 1

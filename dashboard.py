@@ -425,18 +425,8 @@ class ConsoleDashboard:
                     Text(signal_type, style=signal_style),
                 )
 
-            # VWAP（可选，如果启用）
-            if vwap := snapshot.get("vwap"):
-                signal_type = vwap.get("signal_type") or "WAIT"
-                signal_style = self._get_signal_style(signal_type)
-                vwap_val = vwap.get('vwap', 0)
-                table.add_row(
-                    "VWAP",
-                    f"{vwap_val:.2f}",
-                    Text(signal_type, style=signal_style),
-                )
-
-        return Panel(table, title="核心指标 (7指标系统)", border_style="blue", padding=(0, 1))
+          
+        return Panel(table, title="核心指标", border_style="blue", padding=(0, 1))
 
     def _get_signal_style(self, signal: str) -> str:
         """获取信号对应的样式"""

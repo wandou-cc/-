@@ -12,7 +12,6 @@
 - 趋势层：EMA四线系统
 - 动量层：RSI + KDJ + CCI
 - 时机层：MACD + BOLL + ATR
-- 可选：VWAP（日内交易基准）
 """
 
 from typing import Dict, Optional, Tuple, List
@@ -50,12 +49,11 @@ class ResonanceStrategy:
     2. 指标共振度（50分）- 7个指标共振评分
        - 核心指标（RSI/KDJ/MACD/BOLL）每个7分
        - 辅助指标（CCI/ATR）每个6分
-       - VWAP（可选）5分
     3. 动量强度（15分）- 价格动能支持
     4. 时机把握（10分）- 进场时机是否恰当
 
     信号要求：
-    - 至少5个指标共振（7个中5个，VWAP可选）
+    - 至少5个指标共振（7个中5个）
     - 总分>=70才开单
     - 建议与主趋势一致
     """
@@ -80,7 +78,7 @@ class ResonanceStrategy:
                  use_ema: bool = True,    # 是否使用EMA趋势
                  use_cci: bool = True,    # 是否使用CCI
                  use_atr: bool = True,    # 是否使用ATR
-                 use_vwap: bool = False):  # 是否使用VWAP（仅日内交易）
+                ):  
         """初始化共振策略"""
         self.min_resonance = min_resonance
         self.min_score = min_score
@@ -97,7 +95,6 @@ class ResonanceStrategy:
         self.use_ema = use_ema
         self.use_cci = use_cci
         self.use_atr = use_atr
-        self.use_vwap = use_vwap
 
     def check_trend_alignment(self, ema_ultra_fast: float, ema_fast: float,
                              ema_medium: float, ema_slow: float,
@@ -489,64 +486,6 @@ class ResonanceStrategy:
         reason = "ATR: " + ", ".join(reasons) if reasons else "ATR中性"
         return signal, strength, reason
 
-    def check_vwap_resonance(self, vwap: float, current_price: float,
-                            previous_price: Optional[float] = None) -> Tuple[str, float, str]:
-        """
-        VWAP共振检查
-
-        VWAP是日内交易的重要基准：
-        1. 价格在VWAP上方 = 强势
-        2. 价格在VWAP下方 = 弱势
-        3. 穿越VWAP = 重要信号
-
-        Returns:
-            (信号方向, 强度, 原因)
-        """
-        signal = "NEUTRAL"
-        strength = 0.0
-        reason = ""
-
-        if vwap is None or vwap == 0:
-            return signal, strength, "VWAP数据不足"
-
-        # 计算价格偏离VWAP的程度
-        deviation = (current_price - vwap) / vwap * 100
-
-        # 检查穿越（最强信号）
-        if previous_price is not None:
-            # 向上穿越VWAP
-            if previous_price <= vwap and current_price > vwap:
-                signal = "BUY"
-                strength = 90
-                reason = f"向上突破VWAP(偏离+{deviation:.2f}%)"
-            # 向下穿越VWAP
-            elif previous_price >= vwap and current_price < vwap:
-                signal = "SELL"
-                strength = 90
-                reason = f"向下跌破VWAP(偏离{deviation:.2f}%)"
-
-        # 如果没有穿越，根据偏离程度判断
-        if signal == "NEUTRAL":
-            if deviation > 2.0:
-                signal = "SELL"
-                strength = 70
-                reason = f"远高于VWAP(+{deviation:.2f}%)，可能回落"
-            elif deviation > 0.5:
-                signal = "BUY"
-                strength = 60
-                reason = f"高于VWAP(+{deviation:.2f}%)，强势"
-            elif deviation < -2.0:
-                signal = "BUY"
-                strength = 70
-                reason = f"远低于VWAP({deviation:.2f}%)，可能反弹"
-            elif deviation < -0.5:
-                signal = "SELL"
-                strength = 60
-                reason = f"低于VWAP({deviation:.2f}%)，弱势"
-            else:
-                reason = f"接近VWAP(偏离{deviation:.2f}%)"
-
-        return signal, strength, reason
 
     def check_momentum(self, current_price: float, ema_fast: Optional[float] = None,
                       previous_price: Optional[float] = None) -> Tuple[bool, float]:
@@ -634,8 +573,7 @@ class ResonanceStrategy:
                            # ATR（新）
                            atr: Optional[float] = None,
                            previous_atr: Optional[float] = None,
-                           # VWAP（新，可选）
-                           vwap: Optional[float] = None,
+                  
                            # 价格和K线
                            current_price: float = None,
                            previous_price: Optional[float] = None,
@@ -649,7 +587,6 @@ class ResonanceStrategy:
         2. 指标共振度：50分
            - 核心指标（RSI/KDJ/MACD/BOLL）每个7分
            - 辅助指标（CCI/ATR）每个6分
-           - VWAP（可选）5分
         3. 动量确认：15分
         4. 时机把握：10分
         """
@@ -778,26 +715,9 @@ class ResonanceStrategy:
             elif atr_sig == "SELL":
                 sell_indicators.append('ATR')
 
-        # VWAP（可选，5分）
-        vwap_score = 0
-        if self.use_vwap and vwap is not None:
-            vwap_sig, vwap_str, vwap_reason = self.check_vwap_resonance(
-                vwap, current_price, previous_price
-            )
-            vwap_score = (vwap_str / 100) * 5
-            details['VWAP'] = {
-                'signal': vwap_sig,
-                'strength': vwap_str,
-                'score': vwap_score,
-                'reason': vwap_reason
-            }
-            if vwap_sig == "BUY":
-                buy_indicators.append('VWAP')
-            elif vwap_sig == "SELL":
-                sell_indicators.append('VWAP')
-
+       
         # 计算指标共振得分
-        indicator_score = rsi_score + kdj_score + macd_score + bb_score + cci_score + atr_score + vwap_score
+        indicator_score = rsi_score + kdj_score + macd_score + bb_score + cci_score + atr_score 
 
         # 3. 检查动量（20分）
         momentum_confirmed, momentum_score = self.check_momentum(
@@ -908,7 +828,6 @@ class ResonanceStrategy:
             self.use_boll,
             self.use_cci,
             self.use_atr,
-            self.use_vwap
         ])
 
         # 总分和共振
@@ -922,7 +841,7 @@ class ResonanceStrategy:
             reasons.append(f"⚠️ {trend_info['penalty']}")
 
         # 各指标（核心+辅助）
-        for indicator in ['RSI', 'KDJ', 'MACD', 'BOLL', 'CCI', 'ATR', 'VWAP']:
+        for indicator in ['RSI', 'KDJ', 'MACD', 'BOLL', 'CCI', 'ATR']:
             if indicator in score.details:
                 info = score.details[indicator]
                 if info['signal'] != 'NEUTRAL':

@@ -37,10 +37,6 @@
 - 平均真实波幅
 - 衡量市场波动性
 
-### 7. VWAP指标 (`vwap_indicator.py`)
-- 成交量加权平均价
-- 用于评估交易价格质量
-
 ### 8. EMA交叉 (`ema_cross.py`)
 - EMA均线交叉策略
 - 支持多种EMA周期组合
@@ -65,6 +61,33 @@ from indicators import (
 )
 ```
 
+### WebSocket实时计算
+```python
+from indicators import StreamingKlineBuffer, MACDIndicator
+
+buffer = StreamingKlineBuffer(max_closed=500)
+macd = MACDIndicator()
+
+def on_ws_kline(k_payload):
+    buffer.update_from_ws(k_payload["k"])  # 只写入一次，自动处理重复推送
+    arrays = buffer.get_price_arrays()     # closes[-1] 总是使用“最新价格”
+value = macd.calculate_latest(arrays["closes"])
+```
+
+## 实时准确性验证
+
+运行根目录的 `binance_indicator_tester.py` 可直接连接 Binance WebSocket，将最新推送的K线写入 `StreamingKlineBuffer`，实时计算指标，并在每根K线收盘后通过 REST 再计算一遍对比误差：
+
+```bash
+python binance_indicator_tester.py --symbol BTCUSDT --interval 5m --contract perpetual
+```
+
+- `--history`: 初始化加载的历史K线数量，保证指标已经预热
+- `--reference`: 每次对比时通过 REST 重新拉取的K线数量
+- `--log-interval`: 未收盘K线的实时打印间隔（秒）
+
+脚本自动读取 `config.py` 中的 API 地址、代理设置以及每个指标的开关。
+
 ## 特性
 
 - ✅ 符合TradingView标准
@@ -73,4 +96,3 @@ from indicators import (
 - ✅ 提供交易信号分析
 - ✅ 完整的参数配置
 - ✅ 详细的文档说明
-

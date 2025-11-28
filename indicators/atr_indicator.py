@@ -5,7 +5,6 @@ ATR (Average True Range) 平均真实波动幅度指标实现 - 无状态版本
 """
 
 from typing import List, Dict, Any, Optional
-import numpy as np
 
 
 class ATRIndicator:
@@ -48,8 +47,7 @@ class ATRIndicator:
 
         return max(tr1, tr2, tr3)
 
-    def calculate(self, highs: List[float], lows: List[float], closes: List[float],
-                  reverse: bool = False) -> Dict[str, Any]:
+    def calculate(self, highs: List[float], lows: List[float], closes: List[float]) -> Dict[str, Any]:
         """
         计算ATR指标（无状态，每次完整重算）
 
@@ -57,7 +55,6 @@ class ATRIndicator:
             highs: 最高价序列
             lows: 最低价序列
             closes: 收盘价序列
-            reverse: 是否为倒序数据（最新在前）
 
         Returns:
             包含ATR和TR值的字典
@@ -65,13 +62,8 @@ class ATRIndicator:
         if len(highs) != len(lows) or len(highs) != len(closes):
             raise ValueError("最高价、最低价、收盘价数据长度必须一致")
 
-        if reverse:
-            highs = list(reversed(highs))
-            lows = list(reversed(lows))
-            closes = list(reversed(closes))
-
         n = len(closes)
-        if n < self.period + 1:
+        if n == 0:
             return {
                 'atr': None,
                 'tr': None,
@@ -79,41 +71,41 @@ class ATRIndicator:
                 'tr_series': []
             }
 
-        # 计算所有TR值
+        # 计算所有TR值（首根bar没有前收盘价，仅记录high-low）
+        tr_series = [None] * n
         tr_values = []
-        for i in range(n):
-            if i == 0:
-                tr = highs[i] - lows[i]
-            else:
-                tr = self._calculate_true_range(highs[i], lows[i], closes[i - 1])
+
+        if n > 0:
+            tr_series[0] = self._calculate_true_range(highs[0], lows[0], None)
+
+        for i in range(1, n):
+            prev_close = closes[i - 1]
+            tr = self._calculate_true_range(highs[i], lows[i], prev_close)
             tr_values.append(tr)
+            tr_series[i] = tr
 
-        # 计算ATR（使用Wilder平滑法）
-        atr_values = []
+        # 计算ATR并与价格序列对齐（需要至少period+1根K线）
+        atr_series = [None] * n
+        atr = None
 
-        # 初始ATR = 前N个TR的平均值（SMA）
-        # 注意：TR从index 1开始才有意义（需要前收盘价）
-        initial_atr = sum(tr_values[1:self.period + 1]) / self.period
-        atr = initial_atr
-        atr_values.append(atr)
+        if len(tr_values) >= self.period:
+            atr = sum(tr_values[:self.period]) / self.period
+            atr_index = self.period
+            if atr_index < n:
+                atr_series[atr_index] = atr
 
-        # 后续ATR使用Wilder平滑法
-        for i in range(self.period + 1, len(tr_values)):
-            atr = (atr * (self.period - 1) + tr_values[i]) / self.period
-            atr_values.append(atr)
-
-        # 对齐TR序列（从period开始）
-        aligned_tr = tr_values[self.period:]
-
-        if reverse:
-            atr_values = list(reversed(atr_values))
-            aligned_tr = list(reversed(aligned_tr))
+            for idx in range(self.period, len(tr_values)):
+                tr = tr_values[idx]
+                atr = (atr * (self.period - 1) + tr) / self.period
+                price_index = idx + 1
+                if price_index < n:
+                    atr_series[price_index] = atr
 
         return {
-            'atr': atr_values[-1] if atr_values else None,
-            'tr': aligned_tr[-1] if aligned_tr else None,
-            'atr_series': atr_values,
-            'tr_series': aligned_tr
+            'atr': atr_series[-1] if atr_series else None,
+            'tr': tr_series[-1] if tr_series else None,
+            'atr_series': atr_series,
+            'tr_series': tr_series
         }
 
     def calculate_latest(self, highs: List[float], lows: List[float], closes: List[float]) -> Optional[float]:
@@ -188,8 +180,9 @@ class ATRAnalyzer:
 
         # 判断波动率水平
         volatility_level = 'MEDIUM'
-        if len(atr_series) >= 20:
-            recent_atr = atr_series[-20:]
+        valid_atr_series = [value for value in atr_series if value is not None]
+        if len(valid_atr_series) >= 20:
+            recent_atr = valid_atr_series[-20:]
             avg_atr = sum(recent_atr) / len(recent_atr)
             if avg_atr != 0:
                 ratio = atr / avg_atr

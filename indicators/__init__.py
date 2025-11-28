@@ -3,6 +3,8 @@
 基于TradingView标准的技术指标实现
 """
 
+import warnings
+
 from .atr_indicator import ATRIndicator, ATRAnalyzer
 from .bollinger_bands import BollingerBandsIndicator, BollingerBandsAnalyzer
 from .cci_indicator import CCIIndicator, CCIAnalyzer
@@ -10,7 +12,8 @@ from .ema_cross import EMAIndicator, EMACrossSystem, EMACrossAnalyzer, EMAFourLi
 from .kdj_indicator import KDJIndicator, KDJAnalyzer
 from .macd_indicator import MACDIndicator, MACDAnalyzer
 from .rsi_indicator import RSIIndicator, RSIAnalyzer
-from .vwap_indicator import VWAPIndicator, VWAPAnalyzer
+
+from .streaming_buffer import StreamingCandle, StreamingKlineBuffer
 
 __all__ = [
     'ATRIndicator',
@@ -30,9 +33,8 @@ __all__ = [
     'MACDAnalyzer',
     'RSIIndicator',
     'RSIAnalyzer',
-    'VWAPIndicator',
-    'VWAPAnalyzer',
+    'StreamingCandle',
+    'StreamingKlineBuffer',
 ]
 
 __version__ = '1.0.0'
-
