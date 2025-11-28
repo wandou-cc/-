@@ -1,0 +1,5 @@
+__pycache__
+*/**/__pycache__
+.claude
+.vscode
+trade_signals_resonance.log

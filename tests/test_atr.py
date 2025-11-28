@@ -14,8 +14,7 @@ from indicators.atr_indicator import ATRIndicator, ATRAnalyzer
 with open(os.path.join(os.path.dirname(__file__), 'K.json'), 'r', encoding='utf-8') as f:
     data = json.load(f)
 
-# 解析数据（数据是倒序的，从新到旧）
-klines = data['data']
+klines = data
 
 # 提取价格数据（保持倒序）
 timestamps = []
@@ -50,63 +49,14 @@ print(f"ATR周期: {atr_period}")
 print("计算方法: Wilder平滑法")
 print("="*130)
 
-# 测试1：使用reverse=True参数直接处理倒序数据
-print("\n【测试1：直接处理倒序数据（reverse=True）】\n")
-atr = ATRIndicator(period=atr_period)
-result = atr.calculate(highs, lows, closes, reverse=True)
-
-print(f"ATR计算完成，共 {len(result['atr'])} 个ATR值")
-print(f"TR计算完成，共 {len(result['tr'])} 个TR值")
-
-# 显示最近30根K线的ATR值（数据是倒序的，所以索引0是最新的）
-print("\n【最近30根K线的ATR值】\n")
-print(f"{'序号':<6} {'时间':<20} {'最高价':>12} {'最低价':>12} {'收盘价':>12} {'TR':>12} {'ATR':>12}")
-print("-"*130)
-
-for i in range(min(30, len(result['atr']))):
-    timestamp = timestamps[i]
-    time_str = datetime.fromtimestamp(timestamp/1000).strftime('%Y-%m-%d %H:%M:%S')
-
-    print(f"{i+1:<6} {time_str:<20} ${highs[i]:>11,.2f} ${lows[i]:>11,.2f} ${closes[i]:>11,.2f} ${result['tr'][i]:>11,.2f} ${result['atr'][i]:>11,.2f}")
-
-# 测试2：验证反转后计算与直接反转数据计算的一致性
-print("\n" + "="*130)
-print("【测试2：验证计算一致性】")
-print("="*130)
-
-# 手动反转数据计算
-highs_reversed = list(reversed(highs))
-lows_reversed = list(reversed(lows))
-closes_reversed = list(reversed(closes))
-
-atr2 = ATRIndicator(period=atr_period)
-result2 = atr2.calculate(highs_reversed, lows_reversed, closes_reversed, reverse=False)
-
-# 将结果反转回来对比
-result2_atr_reversed = list(reversed(result2['atr']))
-
-# 检查最近10个值是否一致
-print("\n比较最近10个ATR值：")
-print(f"{'序号':<6} {'reverse=True':>15} {'手动反转':>15} {'差异':>15}")
-print("-"*60)
-for i in range(min(10, len(result['atr']))):
-    diff = abs(result['atr'][i] - result2_atr_reversed[i])
-    print(f"{i+1:<6} ${result['atr'][i]:>14,.4f} ${result2_atr_reversed[i]:>14,.4f} ${diff:>14,.8f}")
-
-# 测试3：波动率分析
-print("\n" + "="*130)
-print("【测试3：波动率分析】")
-print("="*130)
-
 # 使用正序数据进行实时更新测试
 atr3 = ATRIndicator(period=atr_period)
 analyzer = ATRAnalyzer(atr3)
 
-# 反转数据为正序（从旧到新）
-timestamps_asc = list(reversed(timestamps))
-highs_asc = list(reversed(highs))
-lows_asc = list(reversed(lows))
-closes_asc = list(reversed(closes))
+timestamps_asc = list((timestamps))
+highs_asc = list((highs))
+lows_asc = list((lows))
+closes_asc = list((closes))
 
 # 更新所有数据点
 volatility_records = []

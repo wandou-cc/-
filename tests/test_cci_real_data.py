@@ -1,5 +1,5 @@
 """
-使用真实K线数据测试CCI指标
+使用真实K线数据测试CCI指标（无状态版本）
 """
 
 import sys
@@ -16,10 +16,8 @@ with open(os.path.join(os.path.dirname(__file__), 'K.json'), 'r', encoding='utf-
 
 # 解析数据
 # 数据格式: [时间戳, 开盘价, 最高价, 最低价, 收盘价, 其他]
-klines = data['data']
+klines = data
 
-# 数据是倒序的（最新的在前），需要反转
-klines.reverse()
 
 # 提取价格数据
 timestamps = []
@@ -47,8 +45,10 @@ print("="*120)
 cci = CCIIndicator(period=20)
 result = cci.calculate(highs, lows, closes)
 
+# 计算所有典型价格用于显示
+all_typical_prices = [(highs[i] + lows[i] + closes[i]) / 3.0 for i in range(len(closes))]
+
 print(f"\nCCI计算周期: 20")
-print(f"CCI值数量: {len(result['cci'])} (前19根K线数据不足)")
 print("="*120)
 
 # 显示最近30个CCI值
@@ -57,8 +57,9 @@ print(f"{'序号':<6} {'时间':<20} {'开盘价':>12} {'最高价':>12} {'最�
 print("-"*130)
 
 # 计算要显示的范围
-start_idx = max(0, len(result['cci']) - 30)
-for i in range(start_idx, len(result['cci'])):
+cci_series = result['cci_series']
+start_idx = max(0, len(cci_series) - 30)
+for i in range(start_idx, len(cci_series)):
     data_idx = i + 19  # 对应原始数据的索引
     timestamp = timestamps[data_idx]
     time_str = datetime.fromtimestamp(timestamp/1000).strftime('%Y-%m-%d %H:%M:%S')
@@ -67,8 +68,8 @@ for i in range(start_idx, len(result['cci'])):
     high_price = highs[data_idx]
     low_price = lows[data_idx]
     close_price = closes[data_idx]
-    typical_price = result['typical_price'][i]
-    cci_val = result['cci'][i]
+    typical_price = all_typical_prices[data_idx]
+    cci_val = cci_series[i]
 
     # 判断状态
     if cci_val > 200:
@@ -92,24 +93,34 @@ print("\n" + "="*120)
 
 # 显示详细计算过程（最后5根K线）
 print("\n【详细计算过程 - 最后5根K线】\n")
-for i in range(max(0, len(result['cci']) - 5), len(result['cci'])):
+
+# 为了显示详细计算过程，需要逐步计算每个K线的SMA和MD
+period = 20
+for i in range(max(0, len(cci_series) - 5), len(cci_series)):
     data_idx = i + 19
     timestamp = timestamps[data_idx]
     time_str = datetime.fromtimestamp(timestamp/1000).strftime('%Y-%m-%d %H:%M:%S')
 
+    # 计算当前窗口的典型价格
+    window_tp = all_typical_prices[data_idx - period + 1:data_idx + 1]
+    current_sma = sum(window_tp) / period
+    deviations = [abs(tp - current_sma) for tp in window_tp]
+    current_md = sum(deviations) / period
+    current_tp = all_typical_prices[data_idx]
+
     print(f"K线 #{data_idx+1} ({time_str})")
     print(f"  价格数据: 高={highs[data_idx]:,.2f}, 低={lows[data_idx]:,.2f}, 收={closes[data_idx]:,.2f}")
-    print(f"  典型价格 TP = (高 + 低 + 收) / 3 = {result['typical_price'][i]:,.2f}")
-    print(f"  20周期SMA = {result['sma'][i]:,.2f}")
-    print(f"  平均偏差 MD = {result['mean_deviation'][i]:,.4f}")
+    print(f"  典型价格 TP = (高 + 低 + 收) / 3 = {current_tp:,.2f}")
+    print(f"  20周期SMA = {current_sma:,.2f}")
+    print(f"  平均偏差 MD = {current_md:,.4f}")
     print(f"  CCI = (TP - SMA) / (0.015 × MD)")
-    print(f"      = ({result['typical_price'][i]:,.2f} - {result['sma'][i]:,.2f}) / (0.015 × {result['mean_deviation'][i]:,.4f})")
-    print(f"      = {result['cci'][i]:.2f}")
+    print(f"      = ({current_tp:,.2f} - {current_sma:,.2f}) / (0.015 × {current_md:,.4f})")
+    print(f"      = {cci_series[i]:.2f}")
 
     # 判断超买超卖
-    if result['cci'][i] > 100:
+    if cci_series[i] > 100:
         print(f"  状态: 超买区域 (CCI > 100)")
-    elif result['cci'][i] < -100:
+    elif cci_series[i] < -100:
         print(f"  状态: 超卖区域 (CCI < -100)")
     else:
         print(f"  状态: 正常区域 (-100 <= CCI <= 100)")
@@ -119,7 +130,7 @@ print("="*120)
 
 # 统计信息
 print("\n【CCI统计信息】\n")
-cci_values = result['cci']
+cci_values = cci_series
 print(f"CCI值数量: {len(cci_values)}")
 print(f"最大CCI: {max(cci_values):.2f}")
 print(f"最小CCI: {min(cci_values):.2f}")
@@ -151,26 +162,30 @@ print(f"强烈超卖 (<-200): {oversold_200} 次 ({oversold_200/len(cci_values)*
 print("\n" + "="*120)
 print("\n【使用CCI分析器检测交易信号】\n")
 
-cci2 = CCIIndicator(period=20)
-analyzer = CCIAnalyzer(cci2)
+analyzer = CCIAnalyzer(period=20, overbought=100, oversold=-100)
 
 buy_signals = []
 sell_signals = []
 
-for i in range(len(closes)):
-    cci2.update(highs[i], lows[i], closes[i])
-    signal = analyzer.get_signal(overbought=100, oversold=-100)
-    
+# 无状态方式：逐步扩展数据窗口来检测信号
+for i in range(20, len(closes)):
+    # 使用到当前K线为止的所有数据
+    h_slice = highs[:i+1]
+    l_slice = lows[:i+1]
+    c_slice = closes[:i+1]
+
+    signal = analyzer.get_signal(h_slice, l_slice, c_slice)
+
     if signal == 'BUY':
         timestamp = timestamps[i]
         time_str = datetime.fromtimestamp(timestamp/1000).strftime('%Y-%m-%d %H:%M:%S')
-        current = cci2.get_current_values()
-        buy_signals.append((i, time_str, closes[i], current['cci']))
+        analysis = analyzer.analyze(h_slice, l_slice, c_slice)
+        buy_signals.append((i, time_str, closes[i], analysis['cci']))
     elif signal == 'SELL':
         timestamp = timestamps[i]
         time_str = datetime.fromtimestamp(timestamp/1000).strftime('%Y-%m-%d %H:%M:%S')
-        current = cci2.get_current_values()
-        sell_signals.append((i, time_str, closes[i], current['cci']))
+        analysis = analyzer.analyze(h_slice, l_slice, c_slice)
+        sell_signals.append((i, time_str, closes[i], analysis['cci']))
 
 print(f"检测到 {len(buy_signals)} 个买入信号，{len(sell_signals)} 个卖出信号\n")
 
@@ -188,26 +203,26 @@ if sell_signals:
 print("\n" + "="*120)
 print("\n【当前市场状态】\n")
 
-current = cci2.get_current_values()
-momentum = analyzer.get_momentum_level()
-trend = analyzer.get_trend_direction()
+analysis = analyzer.analyze(highs, lows, closes)
+current_cci = analysis['cci']
+momentum = analysis['momentum_level']
+trend = analysis['trend_direction']
 
 print(f"当前时间: {datetime.fromtimestamp(timestamps[-1]/1000).strftime('%Y-%m-%d %H:%M:%S')}")
 print(f"当前价格: ${closes[-1]:,.2f}")
-print(f"当前CCI: {current['cci']:.2f}")
+print(f"当前CCI: {current_cci:.2f}")
 print(f"动量水平: {momentum}")
 print(f"趋势方向: {trend}")
 
-if current['cci'] > 100:
-    print(f"\n⚠️  警告: CCI处于超买区域，价格可能过高，注意回调风险")
-elif current['cci'] < -100:
-    print(f"\n💡 提示: CCI处于超卖区域，价格可能被低估，可能是买入机会")
-elif current['cci'] > 0:
-    print(f"\n📈 市场处于看涨区域，价格在平均水平之上")
+if current_cci > 100:
+    print(f"\n警告: CCI处于超买区域，价格可能过高，注意回调风险")
+elif current_cci < -100:
+    print(f"\n提示: CCI处于超卖区域，价格可能被低估，可能是买入机会")
+elif current_cci > 0:
+    print(f"\n市场处于看涨区域，价格在平均水平之上")
 else:
-    print(f"\n📉 市场处于看跌区域，价格在平均水平之下")
+    print(f"\n市场处于看跌区域，价格在平均水平之下")
 
 print("\n" + "="*120)
 print("测试完成！")
 print("="*120)
-
