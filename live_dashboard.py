@@ -117,6 +117,10 @@ class DashboardState:
     buy_signals: int = 0
     sell_signals: int = 0
 
+    # 信号去重：记录上一个有效信号的关键信息
+    last_signal_direction: Optional[SignalDirection] = None
+    last_signal_kline_time: Optional[int] = None  # 产生信号时的K线开盘时间
+
 
 class RichDashboard:
     """Rich 实时仪表盘"""
@@ -462,7 +466,10 @@ class LiveDashboardSystem:
         }
 
         # 信号生成器和市场状态检测器
-        self.signal_generator = SignalGenerator(symbol=self.symbol)
+        self.signal_generator = SignalGenerator(
+            symbol=self.symbol,
+            primary_interval=self.primary_interval
+        )
         self.state_detector = MarketStateDetector()
 
         # 仪表盘
@@ -608,6 +615,13 @@ class LiveDashboardSystem:
         closes = price_data["closes"]
         volumes = price_data["volumes"]
 
+        # 获取当前K线的时间戳（用于信号去重）
+        current_kline_time = None
+        if buffer.active_candle:
+            current_kline_time = buffer.active_candle.timestamp
+        elif buffer.closed_candles:
+            current_kline_time = buffer.closed_candles[-1].timestamp
+
         # 市场状态
         state_result = self.state_detector.detect(highs, lows, closes, volumes)
         self.state.market_state = state_result.state
@@ -617,12 +631,13 @@ class LiveDashboardSystem:
         self.state.minus_di = state_result.minus_di
         self.state.trend_strength = state_result.trend_strength.value
 
-        # 收集多周期数据
+        # 收集多周期数据（使用已收盘K线进行确认，更稳定）
         timeframe_data = {}
         for interval in self.confirmation_intervals:
             tf_buffer = self.buffers.get(interval)
             if tf_buffer:
-                tf_price = tf_buffer.get_price_arrays(include_current=True)
+                # 确认周期使用已收盘K线，避免确认结果不稳定
+                tf_price = tf_buffer.get_price_arrays(include_current=False)
                 if len(tf_price["closes"]) >= 30:
                     timeframe_data[interval] = {
                         "highs": tf_price["highs"],
@@ -649,14 +664,28 @@ class LiveDashboardSystem:
         self.state.atr = signal.indicator_values.get('atr')
         self.state.volume_ratio = signal.indicator_values.get('volume_ratio')
 
-        # 更新信号
+        # 更新当前显示的信号
         self.state.current_signal = signal
-        self.state.signal_history.append(signal)
-        if len(self.state.signal_history) > 100:
-            self.state.signal_history = self.state.signal_history[-100:]
 
-        # 统计
+        # 信号去重：只有当信号方向改变或K线时间改变时才记录新信号
+        is_new_signal = False
         if signal.direction != SignalDirection.HOLD:
+            # 检查是否是新信号：方向改变 或 新K线产生的信号
+            if (self.state.last_signal_direction != signal.direction or
+                self.state.last_signal_kline_time != current_kline_time):
+                is_new_signal = True
+                self.state.last_signal_direction = signal.direction
+                self.state.last_signal_kline_time = current_kline_time
+        else:
+            # HOLD 信号重置状态，允许同一根K线再次产生信号
+            self.state.last_signal_direction = None
+
+        # 只有新信号才记录到历史和统计
+        if is_new_signal:
+            self.state.signal_history.append(signal)
+            if len(self.state.signal_history) > 100:
+                self.state.signal_history = self.state.signal_history[-100:]
+
             self.state.total_signals += 1
             if signal.direction == SignalDirection.BUY:
                 self.state.buy_signals += 1

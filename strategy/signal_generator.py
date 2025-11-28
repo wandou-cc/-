@@ -135,6 +135,7 @@ class SignalGenerator:
     def __init__(
         self,
         symbol: str = "BTCUSDT",
+        primary_interval: str = "5m",
         config: Dict[str, Any] = None
     ):
         """
@@ -142,9 +143,11 @@ class SignalGenerator:
 
         Args:
             symbol: 交易对符号
+            primary_interval: 主周期（如 "5m", "15m" 等）
             config: 自定义配置
         """
         self.symbol = symbol
+        self.primary_interval = primary_interval
         self.config = config or {}
 
         # 初始化市场状态检测器
@@ -157,8 +160,10 @@ class SignalGenerator:
             'breakout': BreakoutStrategy() if is_strategy_enabled('breakout') else None,
         }
 
-        # 初始化多周期确认器
-        self.mtf_confirmer = MultiTimeframeConfirmer()
+        # 初始化多周期确认器（传入主周期配置）
+        self.mtf_confirmer = MultiTimeframeConfirmer(
+            config={"primary_timeframe": self.primary_interval}
+        )
 
         # 初始化仪表盘指标计算器（确保所有指标都能被计算）
         self._rsi = RSIIndicator(period=14)
@@ -264,7 +269,7 @@ class SignalGenerator:
                 "closes": closes,
                 "volumes": volumes or []
             }
-            full_tf_data = {"5m": primary_data, **timeframe_data}
+            full_tf_data = {self.primary_interval: primary_data, **timeframe_data}
 
             mtf_result = self.mtf_confirmer.confirm(
                 strategy_signal.direction,
